@@ -52,7 +52,7 @@ Based on the [Hugging Face MCP Course](https://huggingface.co/learn/mcp-course/e
 
 ## Run the agent to connect to MCP servers
 
-1. Create an agent configuration file agent-nebius-qwen.json as given in the same folder.
+1. Create an agent configuration file agent-nebius-qwen.json as given in the same folder. For all the supported inference providers and models, please refer to Hugging Face [Inference Providers / Models Support Matrix](https://huggingface.co/inference/models).
 
 1. Log in to the Hugging Face Hub to access the Qwen model provided by nebius.
 
