@@ -1,3 +1,9 @@
+# venv files
+hugging-face-mcp-course/unit-2/mcp-sentiment/mcp-sentiment/bin/
+hugging-face-mcp-course/unit-2/mcp-sentiment/mcp-sentiment/lib/
+hugging-face-mcp-course/unit-2/mcp-sentiment/mcp-sentiment/include/
+pyvenv.cfg
+
 # Checkpoints & data files
 *.pt
 *.csv
