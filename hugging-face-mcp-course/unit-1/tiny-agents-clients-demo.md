@@ -1,11 +1,11 @@
 # Tiny Agents Clients
 
-Based on the [Hugging Face MCP Course](https://huggingface.co/learn/mcp-course/en/unit1/mcp-clients#tiny-agents-clients), we document the steps for using tiny agents as MCP Clients to control a browser with Playwright on a **Windows** laptop. Note that we run all the commands in PowerShell.
+Based on the [Hugging Face MCP Course Unit 1](https://huggingface.co/learn/mcp-course/en/unit1/mcp-clients#tiny-agents-clients), we document the steps for using tiny agents as MCP Clients to control a browser with Playwright on a **Windows** laptop. Note that we run all the commands in PowerShell.
 
 ## Setup
 
 1. Download and install the Windows Node version manager `nvm-windows` by following the link given in https://docs.npmjs.com/downloading-and-installing-node-js-and-npm#windows-node-version-managers. Note that DO NOT install `nodist` since it is no longer actively maintained.
-  
+
     1. Download the latest installer from https://github.com/coreybutler/nvm-windows/releases and follow the prompts.
 
     1. Install a clean Node version with matching npm.
@@ -17,7 +17,7 @@ Based on the [Hugging Face MCP Course](https://huggingface.co/learn/mcp-course/e
         # Verify:
         > node -v
         > npm -v
-        ```   
+        ```
 
 1. Install the playwight tool.
 
@@ -31,7 +31,7 @@ Based on the [Hugging Face MCP Course](https://huggingface.co/learn/mcp-course/e
     ```
     > npm config get prefix
     C:\nvm4w\nodejs
-    
+
     > $env:PATH += "C:\nvm4w\nodejs"
 
     # Verify the environment variable PATH.
