@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2D Puzzle Solver</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+        }
+
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+        }
+
+        .controls {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        label {
+            font-weight: 600;
+            color: #555;
+        }
+
+        input[type="number"] {
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+            width: 100px;
+        }
+
+        input[type="number"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        button {
+            padding: 12px 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .grid-container {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+
+        .grid {
+            display: grid;
+            gap: 2px;
+            background: #333;
+            padding: 2px;
+            border-radius: 5px;
+        }
+
+        .cell {
+            width: 50px;
+            height: 50px;
+            background: white;
+            border: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+        }
+
+        .cell:hover {
+            background: #f0f0f0;
+            transform: scale(1.05);
+        }
+
+        .cell.has-number {
+            background: #ffeaa7;
+            color: #2d3436;
+        }
+
+        .cell.path {
+            background: #74b9ff;
+            color: white;
+        }
+
+        .cell.path-start {
+            background: #00b894;
+            color: white;
+        }
+
+        .cell.path-end {
+            background: #e17055;
+            color: white;
+        }
+
+        .cell.path-0 {
+            background: #74b9ff;
+        }
+
+        .cell.path-1 {
+            background: #fd79a8;
+        }
+
+        .cell.path-2 {
+            background: #fdcb6e;
+        }
+
+        .cell.path-3 {
+            background: #6c5ce7;
+        }
+
+        .cell.path-4 {
+            background: #55efc4;
+        }
+
+        .cell.path-5 {
+            background: #a29bfe;
+        }
+
+        .message {
+            text-align: center;
+            padding: 15px;
+            margin-top: 20px;
+            border-radius: 5px;
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .message.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .message.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .instructions {
+            background: #e3f2fd;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            border-left: 4px solid #2196f3;
+        }
+
+        .instructions h2 {
+            color: #1976d2;
+            margin-bottom: 10px;
+        }
+
+        .instructions ul {
+            margin-left: 20px;
+            color: #555;
+        }
+
+        .instructions li {
+            margin: 5px 0;
+        }
+
+        input[type="number"].cell-input {
+            width: 100%;
+            height: 100%;
+            border: none;
+            text-align: center;
+            font-size: 18px;
+            font-weight: 600;
+            background: transparent;
+            padding: 0;
+        }
+
+        input[type="number"].cell-input:focus {
+            outline: 2px solid #667eea;
+            background: #fff;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧩 2D Puzzle Solver</h1>
+        
+        <div class="instructions">
+            <h2>How to Use:</h2>
+            <ul>
+                <li>Enter the grid size (n) and click "Create Grid"</li>
+                <li>Click on any cell to enter a number (click again to edit or clear)</li>
+                <li>Enter the target sum</li>
+                <li>Click "Solve" to find paths connecting pairs that sum to the target</li>
+            </ul>
+        </div>
+
+        <div class="controls">
+            <div class="control-group">
+                <label for="gridSize">Grid Size (n):</label>
+                <input type="number" id="gridSize" min="2" max="20" value="5">
+                <button id="createGridBtn">Create Grid</button>
+            </div>
+            <div class="control-group">
+                <label for="targetSum">Target Sum:</label>
+                <input type="number" id="targetSum" value="5" step="0.1">
+            </div>
+            <button id="solveBtn" disabled>Solve</button>
+            <button id="clearBtn" disabled>Clear All</button>
+        </div>
+
+        <div class="grid-container">
+            <div id="grid" class="grid"></div>
+        </div>
+
+        <div id="message" class="message" style="display: none;"></div>
+    </div>
+
+    <script>
+        let gridSize = 5;
+        let numberCells = new Map(); // Map of "x,y" -> value
+        let solution = null;
+
+        // Create grid
+        document.getElementById('createGridBtn').addEventListener('click', () => {
+            gridSize = parseInt(document.getElementById('gridSize').value);
+            if (gridSize < 2 || gridSize > 20) {
+                showMessage('Grid size must be between 2 and 20', 'error');
+                return;
+            }
+            createGrid();
+            numberCells.clear();
+            solution = null;
+            document.getElementById('solveBtn').disabled = false;
+            document.getElementById('clearBtn').disabled = false;
+            hideMessage();
+        });
+
+        // Clear all numbers
+        document.getElementById('clearBtn').addEventListener('click', () => {
+            numberCells.clear();
+            solution = null;
+            createGrid();
+            hideMessage();
+        });
+
+        // Solve puzzle
+        document.getElementById('solveBtn').addEventListener('click', () => {
+            const targetSum = parseFloat(document.getElementById('targetSum').value);
+            if (numberCells.size === 0) {
+                showMessage('Please enter at least one number in the grid', 'error');
+                return;
+            }
+            if (numberCells.size % 2 !== 0) {
+                showMessage('Number of cells with numbers must be even', 'error');
+                return;
+            }
+
+            const numberCellsList = Array.from(numberCells.entries()).map(([key, value]) => {
+                const [x, y] = key.split(',').map(Number);
+                return [x, y, value];
+            });
+
+            solution = solve2DPuzzle(gridSize, numberCellsList, targetSum);
+            displaySolution();
+        });
+
+        function createGrid() {
+            const grid = document.getElementById('grid');
+            grid.style.gridTemplateColumns = `repeat(${gridSize}, 50px)`;
+            grid.innerHTML = '';
+
+            for (let x = 0; x < gridSize; x++) {
+                for (let y = 0; y < gridSize; y++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.dataset.x = x;
+                    cell.dataset.y = y;
+                    
+                    const key = `${x},${y}`;
+                    if (numberCells.has(key)) {
+                        cell.textContent = numberCells.get(key);
+                        cell.classList.add('has-number');
+                    }
+
+                    cell.addEventListener('click', () => handleCellClick(x, y, cell));
+                    grid.appendChild(cell);
+                }
+            }
+        }
+
+        function handleCellClick(x, y, cell) {
+            const key = `${x},${y}`;
+            
+            if (numberCells.has(key)) {
+                // Edit existing number
+                const currentValue = numberCells.get(key);
+                const input = document.createElement('input');
+                input.type = 'number';
+                input.className = 'cell-input';
+                input.value = currentValue;
+                input.step = '0.1';
+                
+                cell.innerHTML = '';
+                cell.appendChild(input);
+                input.focus();
+                input.select();
+
+                const finishEdit = () => {
+                    const value = parseFloat(input.value);
+                    if (isNaN(value) || value <= 0) {
+                        numberCells.delete(key);
+                        cell.textContent = '';
+                        cell.classList.remove('has-number');
+                    } else {
+                        numberCells.set(key, value);
+                        cell.textContent = value;
+                        cell.classList.add('has-number');
+                    }
+                    solution = null;
+                    hideMessage();
+                };
+
+                input.addEventListener('blur', finishEdit);
+                input.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        input.blur();
+                    }
+                });
+            } else {
+                // Add new number
+                const input = document.createElement('input');
+                input.type = 'number';
+                input.className = 'cell-input';
+                input.step = '0.1';
+                input.placeholder = '0';
+                
+                cell.innerHTML = '';
+                cell.appendChild(input);
+                input.focus();
+
+                const finishEdit = () => {
+                    const value = parseFloat(input.value);
+                    if (isNaN(value) || value <= 0) {
+                        cell.textContent = '';
+                        cell.classList.remove('has-number');
+                    } else {
+                        numberCells.set(key, value);
+                        cell.textContent = value;
+                        cell.classList.add('has-number');
+                    }
+                    solution = null;
+                    hideMessage();
+                };
+
+                input.addEventListener('blur', finishEdit);
+                input.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        input.blur();
+                    }
+                });
+            }
+        }
+
+        function displaySolution() {
+            if (!solution || solution.length === 0) {
+                showMessage('No solution found', 'error');
+                createGrid();
+                return;
+            }
+
+            showMessage(`Solution found with ${solution.length} path(s)!`, 'success');
+            
+            // Create a map of cells to path indices
+            const cellToPath = new Map();
+            solution.forEach((path, pathIdx) => {
+                path.forEach(([x, y]) => {
+                    const key = `${x},${y}`;
+                    if (!cellToPath.has(key)) {
+                        cellToPath.set(key, []);
+                    }
+                    cellToPath.get(key).push(pathIdx);
+                });
+            });
+
+            // Update grid display
+            const grid = document.getElementById('grid');
+            const cells = grid.querySelectorAll('.cell');
+            
+            cells.forEach(cell => {
+                const x = parseInt(cell.dataset.x);
+                const y = parseInt(cell.dataset.y);
+                const key = `${x},${y}`;
+                
+                // Remove all path classes
+                cell.className = 'cell';
+                cell.classList.remove('path', 'path-start', 'path-end', 'path-0', 'path-1', 'path-2', 'path-3', 'path-4', 'path-5');
+                
+                if (cellToPath.has(key)) {
+                    const pathIndices = cellToPath.get(key);
+                    const pathIdx = pathIndices[0];
+                    const path = solution[pathIdx];
+                    
+                    // Check if it's start or end of this specific path
+                    const isStart = path[0][0] === x && path[0][1] === y;
+                    const isEnd = path[path.length - 1][0] === x && path[path.length - 1][1] === y;
+                    
+                    if (isStart && isEnd) {
+                        // Both start and end (single cell path - shouldn't happen normally)
+                        cell.classList.add('path-start');
+                    } else if (isStart) {
+                        cell.classList.add('path-start');
+                    } else if (isEnd) {
+                        cell.classList.add('path-end');
+                    } else {
+                        cell.classList.add('path', `path-${pathIdx % 6}`);
+                    }
+                }
+                
+                // Keep number display
+                if (numberCells.has(key)) {
+                    cell.textContent = numberCells.get(key);
+                    cell.classList.add('has-number');
+                }
+            });
+        }
+
+        function showMessage(text, type) {
+            const message = document.getElementById('message');
+            message.textContent = text;
+            message.className = `message ${type}`;
+            message.style.display = 'block';
+        }
+
+        function hideMessage() {
+            document.getElementById('message').style.display = 'none';
+        }
+
+        // Puzzle solver functions (ported from Python)
+
+        function solve2DPuzzle(n, numberCellsList, targetSum) {
+            // Create a grid to mark number cells
+            const grid = Array(n).fill(null).map(() => Array(n).fill(0));
+            const numberPositions = new Map();
+            
+            numberCellsList.forEach(([x, y, value]) => {
+                grid[x][y] = value;
+                numberPositions.set(`${x},${y}`, value);
+            });
+            
+            // Find all valid pairs that sum to target_sum
+            const validPairs = [];
+            const cellsList = Array.from(numberPositions.entries());
+            
+            for (let i = 0; i < cellsList.length; i++) {
+                for (let j = i + 1; j < cellsList.length; j++) {
+                    const [key1, val1] = cellsList[i];
+                    const [key2, val2] = cellsList[j];
+                    const [x1, y1] = key1.split(',').map(Number);
+                    const [x2, y2] = key2.split(',').map(Number);
+                    
+                    if (Math.abs(val1 + val2 - targetSum) < 0.0001) { // Float comparison
+                        validPairs.push([[x1, y1], [x2, y2]]);
+                    }
+                }
+            }
+            
+            if (validPairs.length === 0) {
+                return [];
+            }
+            
+            // Try to find a valid combination of pairs and paths
+            return findValidSolution(n, grid, numberPositions, validPairs, targetSum);
+        }
+
+        function findPathBFS(n, grid, start, end, usedCells) {
+            if (start[0] === end[0] && start[1] === end[1]) {
+                return [start];
+            }
+            
+            const queue = [[start, [start]]];
+            const visited = new Set();
+            visited.add(`${start[0]},${start[1]}`);
+            
+            const directions = [[0, 1], [0, -1], [1, 0], [-1, 0]]; // right, left, down, up
+            
+            while (queue.length > 0) {
+                const [[x, y], path] = queue.shift();
+                
+                for (const [dx, dy] of directions) {
+                    const nx = x + dx;
+                    const ny = y + dy;
+                    
+                    // Check bounds
+                    if (nx < 0 || nx >= n || ny < 0 || ny >= n) {
+                        continue;
+                    }
+                    
+                    // Check if it's the destination
+                    if (nx === end[0] && ny === end[1]) {
+                        return [...path, [nx, ny]];
+                    }
+                    
+                    const nextKey = `${nx},${ny}`;
+                    
+                    // Skip if already visited in this search
+                    if (visited.has(nextKey)) {
+                        continue;
+                    }
+                    
+                    // Skip if used by another path
+                    if (usedCells.has(nextKey)) {
+                        continue;
+                    }
+                    
+                    // Skip if it's a number cell (but not start or end)
+                    if (grid[nx][ny] !== 0 && (nx !== start[0] || ny !== start[1]) && (nx !== end[0] || ny !== end[1])) {
+                        continue;
+                    }
+                    
+                    visited.add(nextKey);
+                    queue.push([[nx, ny], [...path, [nx, ny]]]);
+                }
+            }
+            
+            return null;
+        }
+
+        function findValidSolution(n, grid, numberPositions, validPairs, targetSum) {
+            const allNumberCells = Array.from(numberPositions.keys()).map(key => {
+                const [x, y] = key.split(',').map(Number);
+                return [x, y];
+            });
+            
+            function backtrack(pairsToUse, usedCells, paths) {
+                // Check if we've used all number cells
+                const usedNumberCells = new Set();
+                paths.forEach(path => {
+                    usedNumberCells.add(`${path[0][0]},${path[0][1]}`);
+                    usedNumberCells.add(`${path[path.length - 1][0]},${path[path.length - 1][1]}`);
+                });
+                
+                if (usedNumberCells.size === allNumberCells.length) {
+                    return paths;
+                }
+                
+                // Try each remaining pair
+                for (const pair of pairsToUse) {
+                    const [start, end] = pair;
+                    const startKey = `${start[0]},${start[1]}`;
+                    const endKey = `${end[0]},${end[1]}`;
+                    
+                    // Skip if either cell is already used
+                    if (usedNumberCells.has(startKey) || usedNumberCells.has(endKey)) {
+                        continue;
+                    }
+                    
+                    // Try to find a path
+                    const path = findPathBFS(n, grid, start, end, usedCells);
+                    
+                    if (path !== null) {
+                        // Add path cells (excluding start and end) to used_cells
+                        const newUsedCells = new Set(usedCells);
+                        for (let i = 1; i < path.length - 1; i++) {
+                            newUsedCells.add(`${path[i][0]},${path[i][1]}`);
+                        }
+                        
+                        // Recursively try to complete the solution
+                        const remainingPairs = pairsToUse.filter(p => 
+                            !(p[0][0] === pair[0][0] && p[0][1] === pair[0][1] && 
+                              p[1][0] === pair[1][0] && p[1][1] === pair[1][1])
+                        );
+                        const result = backtrack(remainingPairs, newUsedCells, [...paths, path]);
+                        
+                        if (result !== null) {
+                            return result;
+                        }
+                    }
+                }
+                
+                return null;
+            }
+            
+            // Generate all possible perfect matchings
+            function generateMatchings(cells, currentMatching, matchings) {
+                if (cells.length === 0) {
+                    matchings.push([...currentMatching]);
+                    return;
+                }
+                
+                if (cells.length < 2) {
+                    return;
+                }
+                
+                const first = cells[0];
+                for (let i = 1; i < cells.length; i++) {
+                    const second = cells[i];
+                    // Check if this pair is valid (sums to target)
+                    // Check both orders: (first, second) and (second, first)
+                    const isValidPair = validPairs.some(p => {
+                        const p0 = p[0];
+                        const p1 = p[1];
+                        return (p0[0] === first[0] && p0[1] === first[1] && 
+                                p1[0] === second[0] && p1[1] === second[1]) ||
+                               (p0[0] === second[0] && p0[1] === second[1] && 
+                                p1[0] === first[0] && p1[1] === first[1]);
+                    });
+                    
+                    if (isValidPair) {
+                        // Find the pair in validPairs to use the correct order
+                        const pair = validPairs.find(p => {
+                            const p0 = p[0];
+                            const p1 = p[1];
+                            return (p0[0] === first[0] && p0[1] === first[1] && 
+                                    p1[0] === second[0] && p1[1] === second[1]) ||
+                                   (p0[0] === second[0] && p0[1] === second[1] && 
+                                    p1[0] === first[0] && p1[1] === first[1]);
+                        });
+                        
+                        if (pair) {
+                            const remaining = [...cells.slice(1, i), ...cells.slice(i + 1)];
+                            currentMatching.push(pair);
+                            generateMatchings(remaining, currentMatching, matchings);
+                            currentMatching.pop();
+                        }
+                    }
+                }
+            }
+            
+            const allMatchings = [];
+            generateMatchings(allNumberCells, [], allMatchings);
+            
+            // Try each matching to find valid paths
+            for (const matching of allMatchings) {
+                const result = backtrack(matching, new Set(), []);
+                if (result !== null) {
+                    return result;
+                }
+            }
+            
+            return [];
+        }
+
+        // Initialize with default grid
+        window.addEventListener('DOMContentLoaded', () => {
+            createGrid();
+        });
+    </script>
+</body>
+</html>
