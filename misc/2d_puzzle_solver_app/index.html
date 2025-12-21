@@ -295,7 +295,7 @@
         });
 
         // Solve puzzle
-        document.getElementById('solveBtn').addEventListener('click', () => {
+        document.getElementById('solveBtn').addEventListener('click', async () => {
             const targetSum = parseFloat(document.getElementById('targetSum').value);
             if (numberCells.size === 0) {
                 showMessage('Please enter at least one number in the grid', 'error');
@@ -311,8 +311,21 @@
                 return [x, y, value];
             });
 
-            solution = solve2DPuzzle(gridSize, numberCellsList, targetSum);
-            displaySolution();
+            // Disable solve button while solving
+            const solveBtn = document.getElementById('solveBtn');
+            solveBtn.disabled = true;
+            solveBtn.textContent = 'Solving...';
+            
+            try {
+                solution = await solve2DPuzzle(gridSize, numberCellsList, targetSum);
+                displaySolution();
+            } catch (error) {
+                console.error('Solve error:', error);
+                showMessage('Error solving puzzle: ' + error.message, 'error');
+            } finally {
+                solveBtn.disabled = false;
+                solveBtn.textContent = 'Solve';
+            }
         });
 
         function createGrid() {
@@ -486,9 +499,326 @@
             document.getElementById('message').style.display = 'none';
         }
 
-        // Puzzle solver functions (ported from Python)
+        // Puzzle solver functions
+        // 
+        // This supports two modes:
+        // 1. Backend API mode: Calls a Python backend running OR-Tools CP-SAT (recommended for accuracy)
+        // 2. JavaScript fallback: Uses constraint-based backtracking (works offline but may be slower)
+        
+        const USE_BACKEND_API = true; // Set to false to use JavaScript solver only
+        const BACKEND_URL = 'http://localhost:5000/solve'; // Backend API URL
+        
+        async function solve2DPuzzle(n, numberCellsList, targetSum) {
+            // Try backend API first if enabled
+            if (USE_BACKEND_API) {
+                try {
+                    const result = await solveWithBackendAPI(n, numberCellsList, targetSum);
+                    if (result !== null) {
+                        return result;
+                    }
+                } catch (error) {
+                    console.warn('Backend API failed, falling back to JavaScript solver:', error);
+                    // Don't show error message - just silently fall back
+                }
+            }
+            
+            // Fallback to JavaScript solver
+            return solve2DPuzzleConstraint(n, numberCellsList, targetSum);
+        }
+        
+        // Call Python backend API with OR-Tools CP-SAT
+        async function solveWithBackendAPI(n, numberCellsList, targetSum) {
+            const response = await fetch(BACKEND_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    n: n,
+                    number_cells: numberCellsList,
+                    target_sum: targetSum
+                })
+            });
+            
+            if (!response.ok) {
+                throw new Error(`Backend API error: ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            if (data.error) {
+                throw new Error(data.error);
+            }
+            
+            if (!data.solution || data.solution.length === 0) {
+                return [];
+            }
+            
+            // Convert backend response to expected format: list of paths
+            // Backend returns list of paths, each path is list of [x, y] coordinates
+            return data.solution;
+        }
 
-        function solve2DPuzzle(n, numberCellsList, targetSum) {
+        // Constraint-based solver that models CP-SAT approach
+        function solve2DPuzzleConstraint(n, numberCellsList, targetSum) {
+            const tolerance = 1e-9;
+            
+            // Create grid and collect terminals
+            const grid = Array(n).fill(null).map(() => Array(n).fill(0));
+            const terminals = [];
+            const terminalSet = new Set();
+            
+            numberCellsList.forEach(([x, y, value]) => {
+                grid[x][y] = value;
+                terminals.push([[x, y], value]);
+                terminalSet.add(`${x},${y}`);
+            });
+            
+            const m = terminals.length;
+            if (m % 2 !== 0) {
+                return [];
+            }
+            
+            // Build candidate pairs whose values sum to target_sum
+            const candidates = [];
+            for (let i = 0; i < m; i++) {
+                for (let j = i + 1; j < m; j++) {
+                    if (Math.abs(terminals[i][1] + terminals[j][1] - targetSum) < tolerance) {
+                        candidates.push([i, j]);
+                    }
+                }
+            }
+            
+            if (candidates.length === 0) {
+                return [];
+            }
+            
+            // Quick feasibility check
+            const incidentCount = new Array(m).fill(0);
+            candidates.forEach(([i, j]) => {
+                incidentCount[i]++;
+                incidentCount[j]++;
+            });
+            if (incidentCount.some(count => count === 0)) {
+                return [];
+            }
+            
+            // Precompute adjacency
+            function neighbors(rc) {
+                const [r, c] = rc;
+                const out = [];
+                if (r > 0) out.push([r - 1, c]);
+                if (r + 1 < n) out.push([r + 1, c]);
+                if (c > 0) out.push([r, c - 1]);
+                if (c + 1 < n) out.push([r, c + 1]);
+                return out;
+            }
+            
+            const allCells = [];
+            for (let r = 0; r < n; r++) {
+                for (let c = 0; c < n; c++) {
+                    allCells.push([r, c]);
+                }
+            }
+            const emptyCells = allCells.filter(rc => !terminalSet.has(`${rc[0]},${rc[1]}`));
+            
+            // Use constraint-based search with perfect matching + flow constraints
+            return solveWithConstraints(n, grid, terminals, terminalSet, candidates, emptyCells, allCells, neighbors);
+        }
+        
+        // Constraint-based solver using perfect matching + flow search
+        function solveWithConstraints(n, grid, terminals, terminalSet, candidates, emptyCells, allCells, neighbors) {
+            const m = terminals.length;
+            
+            // First, find all perfect matchings (each terminal used exactly once)
+            const matchings = generatePerfectMatchings(candidates, m);
+            
+            // Sort by heuristic (shorter total distance)
+            matchings.sort((a, b) => {
+                const distA = a.reduce((sum, [i, j]) => {
+                    const s1 = terminals[i][0];
+                    const s2 = terminals[j][0];
+                    return sum + Math.abs(s1[0] - s2[0]) + Math.abs(s1[1] - s2[1]);
+                }, 0);
+                const distB = b.reduce((sum, [i, j]) => {
+                    const s1 = terminals[i][0];
+                    const s2 = terminals[j][0];
+                    return sum + Math.abs(s1[0] - s2[0]) + Math.abs(s1[1] - s2[1]);
+                }, 0);
+                return distA - distB;
+            });
+            
+            // For each matching, try to find paths that satisfy flow and disjointness constraints
+            // Limit to first 100 matchings to prevent excessive computation
+            const maxMatchingsToTry = Math.min(100, matchings.length);
+            for (let i = 0; i < maxMatchingsToTry; i++) {
+                const result = findPathsForMatching(n, grid, terminals, terminalSet, matchings[i], emptyCells, allCells, neighbors);
+                if (result !== null) {
+                    return result;
+                }
+            }
+            
+            return [];
+        }
+        
+        // Generate all perfect matchings (each terminal appears exactly once)
+        function generatePerfectMatchings(candidates, numTerminals) {
+            const matchings = [];
+            const used = new Set();
+            
+            function backtrack(currentMatching, remainingCandidates) {
+                if (used.size === numTerminals) {
+                    matchings.push([...currentMatching]);
+                    return;
+                }
+                
+                for (let i = 0; i < remainingCandidates.length; i++) {
+                    const [idx1, idx2] = remainingCandidates[i];
+                    
+                    // Check if both terminals are unused
+                    if (!used.has(idx1) && !used.has(idx2)) {
+                        used.add(idx1);
+                        used.add(idx2);
+                        currentMatching.push([idx1, idx2]);
+                        
+                        backtrack(currentMatching, remainingCandidates.slice(i + 1));
+                        
+                        currentMatching.pop();
+                        used.delete(idx1);
+                        used.delete(idx2);
+                    }
+                }
+            }
+            
+            backtrack([], candidates);
+            return matchings;
+        }
+        
+        // Find paths for a given matching using flow-based search with backtracking
+        function findPathsForMatching(n, grid, terminals, terminalSet, matching, emptyCells, allCells, neighbors) {
+            let backtrackCount = 0;
+            const maxBacktrackCalls = 100000; // Safety limit to prevent infinite loops
+            
+            // Use backtracking to try multiple paths for each pair
+            function backtrackPaths(pairIndex, usedCells, currentPaths) {
+                backtrackCount++;
+                if (backtrackCount > maxBacktrackCalls) {
+                    return null; // Safety limit reached
+                }
+                
+                if (pairIndex >= matching.length) {
+                    return currentPaths; // Found a complete solution
+                }
+                
+                const [idx1, idx2] = matching[pairIndex];
+                const [s, valS] = terminals[idx1];
+                const [t, valT] = terminals[idx2];
+                
+                // Try multiple paths for this pair (up to a reasonable limit)
+                // This allows backtracking if a path doesn't lead to a solution
+                // Limit to 10 paths per pair to prevent excessive exploration
+                const pathsForPair = findAllPathsWithConstraints(n, grid, s, t, usedCells, terminalSet, neighbors, 10);
+                
+                for (const path of pathsForPair) {
+                    // Create new used cells set with this path's intermediate cells
+                    const newUsedCells = new Set(usedCells);
+                    for (let i = 1; i < path.length - 1; i++) {
+                        newUsedCells.add(`${path[i][0]},${path[i][1]}`);
+                    }
+                    
+                    // Recursively try to complete the solution
+                    const result = backtrackPaths(pairIndex + 1, newUsedCells, [...currentPaths, path]);
+                    if (result !== null) {
+                        return result;
+                    }
+                }
+                
+                return null; // No valid path combination found for this matching
+            }
+            
+            return backtrackPaths(0, new Set(), []);
+        }
+        
+        // Find all possible paths between start and end (for backtracking)
+        function findAllPathsWithConstraints(n, grid, start, end, usedCells, terminalSet, neighbors, maxPaths = 20) {
+            const paths = [];
+            const tolerance = 1e-9;
+            
+            if (start[0] === end[0] && start[1] === end[1]) {
+                return [[start]];
+            }
+            
+            // Use BFS to find multiple paths, with limits to prevent infinite loops
+            // Use a priority queue approach: track paths by length
+            const queue = [[start, [start], new Set([`${start[0]},${start[1]}`])]];
+            const maxQueueSize = 1000; // Limit queue size to prevent memory issues
+            let iterations = 0;
+            const maxIterations = 10000; // Safety limit
+            
+            while (queue.length > 0 && paths.length < maxPaths && iterations < maxIterations) {
+                iterations++;
+                
+                // Sort by path length to try shorter paths first (only when queue gets large)
+                if (queue.length > 100) {
+                    queue.sort((a, b) => a[1].length - b[1].length);
+                }
+                
+                const [current, path, visitedInPath] = queue.shift();
+                
+                for (const next of neighbors(current)) {
+                    if (paths.length >= maxPaths) break; // Found enough paths
+                    
+                    const nextKey = `${next[0]},${next[1]}`;
+                    
+                    // Check if goal
+                    if (next[0] === end[0] && next[1] === end[1]) {
+                        paths.push([...path, next]);
+                        if (paths.length >= maxPaths) break; // Found enough paths
+                        continue;
+                    }
+                    
+                    // Skip if already visited in this path (prevents cycles within a path)
+                    if (visitedInPath.has(nextKey)) {
+                        continue;
+                    }
+                    
+                    // Skip if used by another path (vertex disjointness constraint)
+                    if (usedCells.has(nextKey)) {
+                        continue;
+                    }
+                    
+                    // Skip if it's a number cell (but not start/end) - flow constraint
+                    const cellValue = grid[next[0]][next[1]];
+                    const isNumberCell = cellValue > 0 || Math.abs(cellValue) > tolerance;
+                    if (isNumberCell && terminalSet.has(nextKey)) {
+                        continue;
+                    }
+                    
+                    // Limit queue size to prevent memory explosion
+                    if (queue.length < maxQueueSize) {
+                        const newVisited = new Set(visitedInPath);
+                        newVisited.add(nextKey);
+                        queue.push([next, [...path, next], newVisited]);
+                    }
+                }
+                
+                if (paths.length >= maxPaths) break; // Found enough paths, exit while loop
+            }
+            
+            // Sort paths by length (shortest first)
+            paths.sort((a, b) => a.length - b.length);
+            return paths;
+        }
+        
+        function manhattanDist(a, b) {
+            return Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]);
+        }
+        
+        // Keep the backtracking solver as fallback
+        function solve2DPuzzleBacktrack(n, numberCellsList, targetSum) {
+            // Use tolerance for floating point comparison (matching notebook)
+            const tolerance = 1e-9;
+            
             // Create a grid to mark number cells
             const grid = Array(n).fill(null).map(() => Array(n).fill(0));
             const numberPositions = new Map();
@@ -509,7 +839,7 @@
                     const [x1, y1] = key1.split(',').map(Number);
                     const [x2, y2] = key2.split(',').map(Number);
                     
-                    if (Math.abs(val1 + val2 - targetSum) < 0.0001) { // Float comparison
+                    if (Math.abs(val1 + val2 - targetSum) < tolerance) { // Float comparison with tolerance
                         validPairs.push([[x1, y1], [x2, y2]]);
                     }
                 }
@@ -519,11 +849,30 @@
                 return [];
             }
             
+            // Quick feasibility check: every terminal must have at least one candidate partner
+            const allNumberCells = Array.from(numberPositions.keys()).map(key => {
+                const [x, y] = key.split(',').map(Number);
+                return [x, y];
+            });
+            const incidentCount = new Array(allNumberCells.length).fill(0);
+            validPairs.forEach(pair => {
+                const [start, end] = pair;
+                const startIdx = allNumberCells.findIndex(([x, y]) => x === start[0] && y === start[1]);
+                const endIdx = allNumberCells.findIndex(([x, y]) => x === end[0] && y === end[1]);
+                if (startIdx !== -1) incidentCount[startIdx]++;
+                if (endIdx !== -1) incidentCount[endIdx]++;
+            });
+            if (incidentCount.some(count => count === 0)) {
+                return [];
+            }
+            
             // Try to find a valid combination of pairs and paths
             return findValidSolution(n, grid, numberPositions, validPairs, targetSum);
         }
 
         function findPathBFS(n, grid, start, end, usedCells) {
+            const tolerance = 1e-9;
+            
             if (start[0] === end[0] && start[1] === end[1]) {
                 return [start];
             }
@@ -564,7 +913,10 @@
                     }
                     
                     // Skip if it's a number cell (but not start or end)
-                    if (grid[nx][ny] !== 0 && (nx !== start[0] || ny !== start[1]) && (nx !== end[0] || ny !== end[1])) {
+                    // Handle float numbers: check if value > 0 or abs(value) > tolerance
+                    const cellValue = grid[nx][ny];
+                    const isNumberCell = cellValue > 0 || Math.abs(cellValue) > tolerance;
+                    if (isNumberCell && (nx !== start[0] || ny !== start[1]) && (nx !== end[0] || ny !== end[1])) {
                         continue;
                     }
                     
@@ -582,6 +934,111 @@
                 return [x, y];
             });
             
+            // Heuristic: prioritize pairs with shorter Manhattan distances
+            function manhattanDistance([x1, y1], [x2, y2]) {
+                return Math.abs(x1 - x2) + Math.abs(y1 - y2);
+            }
+            
+            // Create a fast lookup map for valid pairs (optimization)
+            const pairMap = new Map();
+            validPairs.forEach(pair => {
+                const [start, end] = pair;
+                const key1 = `${start[0]},${start[1]}`;
+                const key2 = `${end[0]},${end[1]}`;
+                if (!pairMap.has(key1)) pairMap.set(key1, new Set());
+                if (!pairMap.has(key2)) pairMap.set(key2, new Set());
+                pairMap.get(key1).add(key2);
+                pairMap.get(key2).add(key1);
+            });
+            
+            // Fast check if two cells form a valid pair
+            function isValidPair(cell1, cell2) {
+                const key1 = `${cell1[0]},${cell1[1]}`;
+                const key2 = `${cell2[0]},${cell2[1]}`;
+                return pairMap.has(key1) && pairMap.get(key1).has(key2);
+            }
+            
+            // Get the actual pair from validPairs
+            function getPair(cell1, cell2) {
+                return validPairs.find(p => {
+                    const p0 = p[0];
+                    const p1 = p[1];
+                    return (p0[0] === cell1[0] && p0[1] === cell1[1] && 
+                            p1[0] === cell2[0] && p1[1] === cell2[1]) ||
+                           (p0[0] === cell2[0] && p0[1] === cell2[1] && 
+                            p1[0] === cell1[0] && p1[1] === cell1[1]);
+                });
+            }
+            
+            // Find all possible paths between start and end (not just the first one)
+            // Returns paths sorted by length (shortest first) for better pruning
+            function findAllPathsBFS(n, grid, start, end, usedCells, maxPaths = 20) {
+                const tolerance = 1e-9;
+                const paths = [];
+                
+                if (start[0] === end[0] && start[1] === end[1]) {
+                    return [[start]];
+                }
+                
+                // Use a priority queue (by path length) to try shorter paths first
+                const queue = [[start, [start], new Set([`${start[0]},${start[1]}`]), 0]];
+                const directions = [[0, 1], [0, -1], [1, 0], [-1, 0]];
+                
+                while (queue.length > 0 && paths.length < maxPaths) {
+                    // Sort queue by path length to prioritize shorter paths
+                    queue.sort((a, b) => a[3] - b[3]);
+                    const [[x, y], path, visited, pathLen] = queue.shift();
+                    
+                    for (const [dx, dy] of directions) {
+                        const nx = x + dx;
+                        const ny = y + dy;
+                        
+                        // Check bounds
+                        if (nx < 0 || nx >= n || ny < 0 || ny >= n) {
+                            continue;
+                        }
+                        
+                        const nextKey = `${nx},${ny}`;
+                        
+                        // Check if it's the destination
+                        if (nx === end[0] && ny === end[1]) {
+                            const fullPath = [...path, [nx, ny]];
+                            paths.push(fullPath);
+                            if (paths.length >= maxPaths) break;
+                            continue;
+                        }
+                        
+                        // Skip if already visited in this path
+                        if (visited.has(nextKey)) {
+                            continue;
+                        }
+                        
+                        // Skip if used by another path
+                        if (usedCells.has(nextKey)) {
+                            continue;
+                        }
+                        
+                        // Skip if it's a number cell (but not start or end)
+                        const cellValue = grid[nx][ny];
+                        const isNumberCell = cellValue > 0 || Math.abs(cellValue) > tolerance;
+                        if (isNumberCell && (nx !== start[0] || ny !== start[1]) && (nx !== end[0] || ny !== end[1])) {
+                            continue;
+                        }
+                        
+                        // Note: We allow revisiting nodes in different path contexts
+                        // to find multiple distinct paths
+                        
+                        const newVisited = new Set(visited);
+                        newVisited.add(nextKey);
+                        queue.push([[nx, ny], [...path, [nx, ny]], newVisited, pathLen + 1]);
+                    }
+                }
+                
+                // Sort paths by length (shortest first)
+                paths.sort((a, b) => a.length - b.length);
+                return paths;
+            }
+            
             function backtrack(pairsToUse, usedCells, paths) {
                 // Check if we've used all number cells
                 const usedNumberCells = new Set();
@@ -594,21 +1051,30 @@
                     return paths;
                 }
                 
-                // Try each remaining pair
-                for (const pair of pairsToUse) {
+                // Sort pairs by heuristic: shorter paths first (better for early pruning)
+                const availablePairs = pairsToUse
+                    .filter(pair => {
+                        const [start, end] = pair;
+                        const startKey = `${start[0]},${start[1]}`;
+                        const endKey = `${end[0]},${end[1]}`;
+                        return !usedNumberCells.has(startKey) && !usedNumberCells.has(endKey);
+                    })
+                    .map(pair => ({
+                        pair,
+                        priority: manhattanDistance(pair[0], pair[1])
+                    }))
+                    .sort((a, b) => a.priority - b.priority)
+                    .map(item => item.pair);
+                
+                // Try each remaining pair (now sorted by priority)
+                for (const pair of availablePairs) {
                     const [start, end] = pair;
-                    const startKey = `${start[0]},${start[1]}`;
-                    const endKey = `${end[0]},${end[1]}`;
                     
-                    // Skip if either cell is already used
-                    if (usedNumberCells.has(startKey) || usedNumberCells.has(endKey)) {
-                        continue;
-                    }
+                    // Try multiple paths (up to 20) for this pair to find a solution
+                    // This helps find solutions when the first path doesn't work
+                    const pathsForPair = findAllPathsBFS(n, grid, start, end, usedCells, 20);
                     
-                    // Try to find a path
-                    const path = findPathBFS(n, grid, start, end, usedCells);
-                    
-                    if (path !== null) {
+                    for (const path of pathsForPair) {
                         // Add path cells (excluding start and end) to used_cells
                         const newUsedCells = new Set(usedCells);
                         for (let i = 1; i < path.length - 1; i++) {
@@ -645,28 +1111,9 @@
                 const first = cells[0];
                 for (let i = 1; i < cells.length; i++) {
                     const second = cells[i];
-                    // Check if this pair is valid (sums to target)
-                    // Check both orders: (first, second) and (second, first)
-                    const isValidPair = validPairs.some(p => {
-                        const p0 = p[0];
-                        const p1 = p[1];
-                        return (p0[0] === first[0] && p0[1] === first[1] && 
-                                p1[0] === second[0] && p1[1] === second[1]) ||
-                               (p0[0] === second[0] && p0[1] === second[1] && 
-                                p1[0] === first[0] && p1[1] === first[1]);
-                    });
-                    
-                    if (isValidPair) {
-                        // Find the pair in validPairs to use the correct order
-                        const pair = validPairs.find(p => {
-                            const p0 = p[0];
-                            const p1 = p[1];
-                            return (p0[0] === first[0] && p0[1] === first[1] && 
-                                    p1[0] === second[0] && p1[1] === second[1]) ||
-                                   (p0[0] === second[0] && p0[1] === second[1] && 
-                                    p1[0] === first[0] && p1[1] === first[1]);
-                        });
-                        
+                    // Use optimized pair check
+                    if (isValidPair(first, second)) {
+                        const pair = getPair(first, second);
                         if (pair) {
                             const remaining = [...cells.slice(1, i), ...cells.slice(i + 1)];
                             currentMatching.push(pair);
@@ -680,8 +1127,15 @@
             const allMatchings = [];
             generateMatchings(allNumberCells, [], allMatchings);
             
-            // Try each matching to find valid paths
-            for (const matching of allMatchings) {
+            // Sort matchings by total Manhattan distance (try easier ones first)
+            const matchingsWithDistance = allMatchings.map(matching => ({
+                matching,
+                totalDistance: matching.reduce((sum, pair) => 
+                    sum + manhattanDistance(pair[0], pair[1]), 0)
+            })).sort((a, b) => a.totalDistance - b.totalDistance);
+            
+            // Try each matching to find valid paths (sorted by difficulty)
+            for (const { matching } of matchingsWithDistance) {
                 const result = backtrack(matching, new Set(), []);
                 if (result !== null) {
                     return result;
